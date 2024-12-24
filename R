@@ -52,6 +52,7 @@ scores <- abs(test_data^2 - sigmaNext^2)
 recentScores <- scores[max(t-T0+1 - lookback + 1,1):(t-T0)]
 
 
+
 library(quantmod)
 library(rugarch)
 
@@ -67,6 +68,7 @@ lookback = 1570
 startUp = 100
 T0 = max(startUp, lookback)
 alpha = 0.05
+alphat=alpha
 gamma = 0.01
 
 train_data = returns[1:lookback]
@@ -84,6 +86,7 @@ garchfit = ugarchfit(garchspec, train_data, solver = "hybrid")
 scores = rep(NA, length(test_data))
 
 # Adaptive Conformal Prediction
+#here basically we are forecasting the value for sigma 
 for (t in 1:length(test_data)) {
   forecast = ugarchforecast(garchfit, n.ahead = 1, data = train_data)
   sigmaNext = sigma(forecast)
@@ -97,10 +100,11 @@ for (t in 1:length(test_data)) {
   # Compute recent scores for lookback window
   if (t >= T0) {
     recentScores = scores[(t - lookback + 1):t]
-    quantile_threshold = quantile(recentScores, 1 - alpha, na.rm = TRUE)
-    print(paste("Time:", t, "Quantile Threshold:", quantile_threshold))
+    errSeqOC <- as.numeric(scores[t] > sort(scores)[ceiling((1-alphat)*(length(scores)+1))])
+    
   }
 }
 
+errSeqOC <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alphat))
 
-
+quantile_threshold = quantile(recentScores, 1 - alphat, na.rm = TRUE)
