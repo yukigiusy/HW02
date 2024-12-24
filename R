@@ -1,0 +1,106 @@
+garchConformalForecasting <- function(returns,alpha = 0.05, gamma = 0.001,lookback=1250,garchP=1, garchQ=1, startUp = 100,verbose=FALSE,updateMethod="Momentum",momentumBW = 0.95){
+  myT <- length(returns)
+  T0 <- max(startUp,lookback)
+  garchSpec <- ugarchspec(mean.model=list(armaOrder = c(0, 0),include.mean=FALSE),variance.model=list(model="sGARCH",garchOrder=c(garchP,garchQ)),distribution.model="norm")
+  alphat <- alpha
+  ### Initialize data storage variables
+  errSeqOC <- rep(0,myT-T0+1)
+  errSeqNC <- rep(0,myT-T0+1)
+  alphaSequence <- rep(alpha,myT-T0+1)
+  scores <- rep(0,myT-T0+1)
+  
+  for(t in T0:myT){
+    if(verbose){
+      print(t)
+    }
+    ### Fit garch model and compute new conformity score
+    garchFit <- ugarchfit(garchSpec, returns[(t-lookback+1):(t-1) ],solver="hybrid")
+    sigmaNext <- sigma(ugarchforecast(garchFit,n.ahead=1))
+    scores[t-T0 + 1] <- abs(returns[t]^2- sigmaNext^2)/sigmaNext^2
+    
+    recentScores <- scores[max(t-T0+1 - lookback + 1,1):(t-T0)]
+    
+    ### compute errt for both methods
+    errSeqOC[t-T0+1] <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alphat))
+    errSeqNC[t-T0+1] <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alpha))
+  
+#returns
+getSymbols("TSLA", from = "2016-01-01", to = "2024-11-30")
+tsla= Cl(TSLA)
+na.omit(tsla)
+returns= dailyReturn((tsla))
+#time
+length_ts=length(returns)
+train_ratio = 0.7*length_ts
+train_data= returns[1:1570,]
+test_data= returns[1571:length_ts]
+
+#predictor
+#standard garch
+lookback= 1570
+startUp=100
+T0= max(startUp, lookback)
+alpha= 0.05
+gamma=0.01
+scores <- rep(NA,length_ts-T0+1)
+garchspec= ugarchspec(mean.model=list(armaOrder = c(0, 0),include.mean=FALSE),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="norm")
+garchfit <- ugarchfit(garchspec, train_data, solver="hybrid")
+
+#scores on test data
+sigmaNext <- sigma(ugarchforecast(garchfit,n.ahead=673))
+scores <- abs(test_data^2 - sigmaNext^2)
+recentScores <- scores[max(t-T0+1 - lookback + 1,1):(t-T0)]
+
+
+library(quantmod)
+library(rugarch)
+
+# Load TSLA data
+getSymbols("TSLA", from = "2016-01-01", to = "2024-11-30")
+tsla = na.omit(Cl(TSLA))
+returns = dailyReturn(tsla)
+
+# Split into train/test
+length_ts = length(returns)
+train_ratio = 0.7
+lookback = 1570
+startUp = 100
+T0 = max(startUp, lookback)
+alpha = 0.05
+gamma = 0.01
+
+train_data = returns[1:lookback]
+test_data = returns[(lookback + 1):length_ts]
+
+# GARCH Model Specification
+garchspec = ugarchspec(
+  mean.model = list(armaOrder = c(0, 0), include.mean = FALSE),
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  distribution.model = "norm"
+)
+garchfit = ugarchfit(garchspec, train_data, solver = "hybrid")
+
+# Initialize scores
+scores = rep(NA, length(test_data))
+
+# Adaptive Conformal Prediction
+for (t in 1:length(test_data)) {
+  forecast = ugarchforecast(garchfit, n.ahead = 1, data = train_data)
+  sigmaNext = sigma(forecast)
+  
+  # Calculate conformity score
+  scores[t] = abs(test_data[t]^2 - sigmaNext^2)
+  
+  # Update train data with the most recent test data
+  train_data = c(train_data, test_data[t])
+  
+  # Compute recent scores for lookback window
+  if (t >= T0) {
+    recentScores = scores[(t - lookback + 1):t]
+    quantile_threshold = quantile(recentScores, 1 - alpha, na.rm = TRUE)
+    print(paste("Time:", t, "Quantile Threshold:", quantile_threshold))
+  }
+}
+
+
+
