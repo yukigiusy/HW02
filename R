@@ -1,110 +1,183 @@
-garchConformalForecasting <- function(returns,alpha = 0.05, gamma = 0.001,lookback=1250,garchP=1, garchQ=1, startUp = 100,verbose=FALSE,updateMethod="Momentum",momentumBW = 0.95){
+---
+title: "HW01"
+author: "Giuseppina Orefice, Alessandra Campanella"
+date: "2024-12-3"
+output:
+  html_document: 
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("trackdown")
+trackdown::upload_file("hmw02.Rmd")
+```
+
+# 1) Theory Conformal Prediction
+
+In the ACI paper has provided a general description of both the conformal prediction and the adaptive conformal prediction. Conformal prediction gives a way to construct prediction interval that guarantees the so called "validity coverage". Let $Z_t = (X_r, Y_r)_{1 \leq r \leq t-1}$ and we want to make the estimation using $X_t$ for $Y_t$. This interval could guarantee the \$ P(Y_t \in \hat{C}*t)* \geq 1 - \alpha\$. That framework is used when the data are considered "exchangeable" that means let $(V_1,V_2,.. V_n)$ our data, we establish that for any permutation $\pi$, $(V_1,V_2,.. V_n)=^d (V_\pi1,V_\pi2,.. V_\pi n)$. The standard conformal prediction works in an easy way as explained below. So, given the value of $Y_t$, we want to predict it using the $X_t$. Let y a candidate for it, we need to construct a predictor $\hat\mu(X)$ (remember that in conformal prediction we care about the functional form of the predictor and it can assume whichever distribution we want) and we need to evaluate the scores $S(X_t,y)= \mid \hat\mu(X)- y \mid$ that are a measure of conformity of the predicted y with respect to the observed data. In that case we have performed the mean as point predictor, but for instance we could apply the quantile regression in order to achieve not only the marginal coverage, but the conditional coverage as well. Through the quantile regression we are going to get better conformal intervals since we are able to guarantee the coverage conditioning on a particular value of the covariate. Therefore, we care of the heteroscedasticity in the data. This method is based on the estimation of the quantile of the distribution $\hat q(X;p)$ where p is p-th quantile of the distribution $Y \mid X$. Suppose that we have performed the division of the training data from the calibration data and we assume that both the training and the calibration dataset are exchangeable. We now perform the the split conformal prediction. The estimation of the upper quantile is basically given by $\hat q(X_t;\frac{\alpha}{2})$ and instead for the lower quantile we have $\hat q(X_t;\frac{1-\alpha}{2})$. The quantiles are calculated on the training set. The scores are equal to $S(X_t,y)=\text max(\hat q(X_t;\frac{\alpha}{2}) - y; y- \hat q(X_t;\frac{1-\alpha}{2}))$. They are calculated on the calibration dataset in order to give the same weight and to treat symmetrically all the data. Now, using the calibration set we are able to compute the critical quantile: $$
+\hat{Q}(p) := \inf 
+\left\{
+s : 
+(\frac{1}{|\mathcal{D}_{\text{cal}}|} 
+\sum_{(X_r, Y_r) \in \mathcal{D}_{\text{cal}}} 
+\mathbf{1}\{S(X_r, Y_r) \leq s) \geq p
+\right\}$$ Basically with this critical quantile we are calculating the infimum value for the score in the calibration dataset such that the summation of the previous scores are less or equal to the actual score with probability equal to the p-th quantile or in other words, better aligned with the classes, we are looking for the the critical quantile that is equal to \$ S{\lfloor (1-\alpha)(n_c + 1) \rfloor} \$ (the score at the integer position calculated in the p-th quantile on the calibration dataset). There is another notation: $$
+P(Y_t \in \hat{C}_t) = P(S(X_t, Y_t) \leq \hat{Q}(1-\alpha)) = \frac{\left\lfloor |\mathcal{D}_{\text{cal}}| (1 - \alpha) \right\rfloor}{|\mathcal{D}_{\text{cal}}|+1}$$
+
+## Adaptive conformal prediction
+
+Unfortunately in real-world applications, the exchangeability cannot be ensured like in the financial applications since when the covariate shift in distribution happens, we cannot guarantee anymore the exchangeability. That's why it is introduced the "adaptive conformal inference", that is able to ensure the validity through an online forecasting: it means that we construct conformal inference adapted to the changes in the data when they occur and it should be re-estimated to align with the most recent observations. This approach is simple, because it estimates only a single parameter and it is general since we could use any machine learning tools in order to compute the point prediction. So, now we estimate the scores function $S_t()$ and the $\hat Q_t$. In addition, in the adaptive conformal prediction we need to estimate the miscoverage rate of prediction given by $$
+M_t(\alpha) := P(S_t(X_t, Y_t) > \hat{Q_t}(1 - \alpha)$$ So, $M_t$ is a set of all the values that are greater than the critical quantile and they should belong to the alpha quantile. This $M_t(\alpha)$ cannot be equal or close to $\alpha$, but it may exist another value $\alpha_t \in (0,1)$ such that $M_t(\alpha)$ is approximated to $\alpha$. Basically, we work by looking at the miscoverage rate of prediction and we need to define an indicator function for the errors. $$
+err_t := 
+\begin{cases}
+1, & \text{if } Y_t \notin \hat{C}_t(\alpha_t), \\
+0, & \text{otherwise}
+\end{cases}
+$$ where $$
+\hat{C}_t(\alpha_t) := \{y : S_t(X_t, y) \leq \hat{Q}_t(1 - \alpha_t)\}
+$$
+
+If the errors are equal to 1 basically the confidence interval was too short and it is not able to capture all the errors; instead if it is equal to 0, the confidence interval was too long and it was not able to exclude the errors equal to $\alpha$.
+
+In the experiment presented in the paper we start with $\alpha_1=\alpha$.
+
+We apply the standard conformal prediction in the first case, and then we go through the adaptive conformal prediction with the $\alpha_t$. Then $\alpha_t= \alpha_t + \gamma(\alpha - err_t)$. $\gamma$ is a step-size parameter and it is greater than 0. It is a measure between adaptability and stability. If $\gamma$ is very high, we need to adapt more the greater change in the distribution, but it increases the $\alpha_t$ as well. We focus only on this case for simplicity.
+
+But there is an extension as well: $\alpha_{t+1}= \alpha_t + \gamma (\alpha - \sum_ {s=1}^{t} w_s err_s)$ where $w_s {1 \leq s \leq t}$ with a sequence of increasing weights starting from $\sum_ {s=1}^{t} w_s = 1$.
+
+#  2) Application in R
+
+## Point 2.2 , 2.3 , 2.4
+
+library(quantmod) library(quantreg) library(rugarch)
+
+Since we are using a time series and the data are not exchangeable, the paper suggests to use the "adaptive" conformal prediction. We are going to make the first prediction by using the classical $\alpha$ and the we adapt this value step by step when new data arrives. The first adaptive method is the simplest by using $\alpha_t= \alpha +(\gamma -\text {err})$. The second method is the momentum. We do it for a non normalized and a normalized conformal prediction. A non-normalized conformal prediction follows the calculation done in the point 1 for both the scores and the quantile and it reaches the coverage, but that coverage is a marginal coverage. Instead, the normalized one performs the calculation of the scores by normalizing it with the variance and then also the quantile are calculated by multiplying them to the variance. **FORMULA**. In addition we have proposed a standard Garch model compared to a Garch that takes into account the leverage effect. We recall that leverage effect means that the negative events impact more than the positive ones, ending up in an asymmetric distribution with heavy left tails.
+
+**WRITE THE FORMULA OF THE ADAPTATION BUT LOOK AT THE RETURNS**
+
+Let's start.
+
+We have defined a general function with different arguments:
+
+1.  returns of our choice;
+
+2.  $\alpha$ and $\gamma$;
+
+3.  the horizon of our estimation;
+
+4.  lookback are the number of steps back that we perform;
+
+5.  model_spec and score_type are the ones that split the normalized to the non-normalized and the standard Garch and the asymmetric Garch;
+
+6.  garchP is the arch order and garchQ is the garch order (in order to avoid misunderstings connected to the order);
+
+7.  startUp is the starting point;
+
+8.  updateMethod is used to exploit which method we are going to use to adapt our $\alpha$.
+
+    We have not performed a split in the data (train and calibration data) because the paper suggested to use the entire dataset, but we recall that there is the possibility to split the data in order to use the split conformal prediction, even for the returns (since it is a very large dataset, so it could be well applied in that case!)
+
+    For each step we have included a comment inside the box.
+
+```{r}
+garchConformalForecasting <- function(returns, alpha, gamma, h = horizon, lookback, model_spec, score_type, garchP, garchQ, startUp = 100, verbose = FALSE, updateMethod, momentumBW = 0.95) {
   myT <- length(returns)
-  T0 <- max(startUp,lookback)
-  garchSpec <- ugarchspec(mean.model=list(armaOrder = c(0, 0),include.mean=FALSE),variance.model=list(model="sGARCH",garchOrder=c(garchP,garchQ)),distribution.model="norm")
-  alphat <- alpha
-  ### Initialize data storage variables
-  errSeqOC <- rep(0,myT-T0+1)
-  errSeqNC <- rep(0,myT-T0+1)
-  alphaSequence <- rep(alpha,myT-T0+1)
-  scores <- rep(0,myT-T0+1)
+  T0 <- max(startUp, lookback)
   
-  for(t in T0:myT){
-    if(verbose){
+#We are specifying the model: we have used sgarch and aparch for the leverage effect
+  if (model_spec == "sGARCH") {
+    garchSpec <- ugarchspec(
+      mean.model = list(armaOrder = c(0, 0), include.mean = FALSE),
+      variance.model = list(model = "sGARCH", garchOrder = c(garchP, garchQ)),
+      distribution.model = "norm"
+    )
+  } else if (model_spec == "apARCH") {
+    garchSpec <- ugarchspec(
+      mean.model = list(armaOrder = c(0, 0), include.mean = FALSE),
+      variance.model = list(model = "apARCH", garchOrder = c(garchP, garchQ)),
+      distribution.model = "norm"
+    )
+  }
+#the first alpha is the fixed one and then it adapts
+alphat <- alpha
+
+#Initialize data storage variables
+  errSeqOC <- rep(0, myT - T0 + 1)
+  alphaSequence <- rep(alpha, myT - T0 + 1)
+  scores <- matrix(0, nrow = myT - T0 + 1, ncol = h) # Store scores for all horizons
+  low_PI <- rep(NA, myT - T0 + 1)
+  high_PI <- rep(NA, myT - T0 + 1)
+  
+#starting the loop
+  for (t in T0:(myT - h + 1)) {
+    if (verbose) {
       print(t)
     }
-    ### Fit garch model and compute new conformity score
-    garchFit <- ugarchfit(garchSpec, returns[(t-lookback+1):(t-1) ],solver="hybrid")
-    sigmaNext <- sigma(ugarchforecast(garchFit,n.ahead=1))
-    scores[t-T0 + 1] <- abs(returns[t]^2- sigmaNext^2)/sigmaNext^2
+#Then we have fitted the GARCH model and compute new conformity scores for horizon
+    garchFit <- ugarchfit(garchSpec, returns[(t - lookback + 1):(t - 1)], solver = "hybrid")
+    sigmaNext <- sigma(ugarchforecast(garchFit, n.ahead = h)) #this is our forecast by looking at the horizon h 
+
+#then we start the loop in order to calculate the scores, that are the absolute deviation of the returns squared and the predictor (our forecasted variance) 
+    for (step in 1:h) {
+      if (score_type == "non normalized") {
+        scores[t - T0 + 1, step] <- abs(returns[t - h + step]^2 - sigmaNext[step]^2)
+      } else if (score_type == "normalized") {
+        scores[t - T0 + 1, step] <- abs(returns[t - h + step]^2 - sigmaNext[step]^2) / sigmaNext[step]^2
+      }
+    }
     
-    recentScores <- scores[max(t-T0+1 - lookback + 1,1):(t-T0)]
+# Aggregate recent scores across all horizons
+    recentScores <- scores[max(t - T0 + 1 - lookback + 1, 1):(t - T0), ]
+    recentScores <- as.vector(recentScores) # Flatten matrix for quantile calculation
     
-    ### compute errt for both methods
-    errSeqOC[t-T0+1] <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alphat))
-    errSeqNC[t-T0+1] <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alpha))
+### Compute error for outlier conformity
+    errSeqOC[t - T0 + 1] <- as.numeric(scores[t - T0 + 1, h] > quantile(recentScores, 1 - alphat))
+    
+# Update alpha_t with the simple methods and momentum
+    alphaSequence[t - T0 + 1] <- alphat
+    if (updateMethod == "Simple") {
+      alphat <- alphat + gamma * (alpha - errSeqOC[t - T0 + 1])
+    } else if (updateMethod == "Momentum") {
+      w <- rev(momentumBW^(1:(t - T0 + 1)))
+      w <- w / sum(w)
+      alphat <- alphat + gamma * (alpha - sum(errSeqOC[1:(t - T0 + 1)] * w))
+    }
+    
+    if (t %% 100 == 0) {
+      print(sprintf("Done %g steps", t))
+    }
+  }
   
-#returns
-getSymbols("TSLA", from = "2016-01-01", to = "2024-11-30")
-tsla= Cl(TSLA)
-na.omit(tsla)
-returns= dailyReturn((tsla))
-#time
-length_ts=length(returns)
-train_ratio = 0.7*length_ts
-train_data= returns[1:1570,]
-test_data= returns[1571:length_ts]
+# Calculate prediction intervals
+  if (score_type == "non normalized") {
+    low_PI <- sigmaNext[h]^2 - quantile(recentScores, 1 - alphat)
+    high_PI <- sigmaNext[h]^2 + quantile(recentScores, 1 - alphat)
+  } else if (score_type == "normalized") {
+    low_PI <- sigmaNext[h]^2 - quantile(recentScores, 1 - alphat) / sigmaNext[h]^2
+    high_PI <- sigmaNext[h]^2 + quantile(recentScores, 1 - alphat) / sigmaNext[h]^2
+  }
+  
+  return(list(alphaSequence = alphaSequence, errSeqOC = errSeqOC, low_PI = low_PI, high_PI = high_PI))
+}
+```
 
-#predictor
-#standard garch
-lookback= 1570
-startUp=100
-T0= max(startUp, lookback)
-alpha= 0.05
-gamma=0.01
-scores <- rep(NA,length_ts-T0+1)
-garchspec= ugarchspec(mean.model=list(armaOrder = c(0, 0),include.mean=FALSE),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="norm")
-garchfit <- ugarchfit(garchspec, train_data, solver="hybrid")
+Then, we have downloaded TSLA data and computed the returns.
 
-#scores on test data
-sigmaNext <- sigma(ugarchforecast(garchfit,n.ahead=673))
-scores <- abs(test_data^2 - sigmaNext^2)
-recentScores <- scores[max(t-T0+1 - lookback + 1,1):(t-T0)]
-
-
-
-library(quantmod)
-library(rugarch)
-
-# Load TSLA data
+```{r}
 getSymbols("TSLA", from = "2016-01-01", to = "2024-11-30")
 tsla = na.omit(Cl(TSLA))
 returns = dailyReturn(tsla)
 
-# Split into train/test
-length_ts = length(returns)
-train_ratio = 0.7
-lookback = 1570
-startUp = 100
-T0 = max(startUp, lookback)
-alpha = 0.05
-alphat=alpha
-gamma = 0.01
+```
 
-train_data = returns[1:lookback]
-test_data = returns[(lookback + 1):length_ts]
+We have applied the function for each cases that we have considered above.
 
-# GARCH Model Specification
-garchspec = ugarchspec(
-  mean.model = list(armaOrder = c(0, 0), include.mean = FALSE),
-  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
-  distribution.model = "norm"
-)
-garchfit = ugarchfit(garchspec, train_data, solver = "hybrid")
+```{r}
+aparch_nonnorm = garchConformalForecasting(returns = returns,h=5, alpha = 0.1, model_spec="apARCH", score_type="non normalized",lookback=1570, garchP=1, garchQ=1, gamma=0.001, startUp=1500, updateMethod="Simple")
+garch_norm =garchConformalForecasting(returns = returns,h=5, alpha = 0.1, model_spec="sGARCH", score_type="normalized",lookback=1570, garchP=1, garchQ=1, gamma=0.001, startUp=1500, updateMethod="Simple")
+garch_nonnorm = garchConformalForecasting(returns = returns,h=5, alpha = 0.1, model_spec="sGARCH", score_type="non normalized",lookback=1570, garchP=1, garchQ=1, gamma=0.001, startUp=1500, updateMethod="Simple")
+aparch_norm = garchConformalForecasting(returns = returns,h=5, alpha = 0.1, model_spec="apARCH", score_type="normalized",lookback=1570, garchP=1, garchQ=1, gamma=0.001, startUp=1500, updateMethod="Simple")
 
-# Initialize scores
-scores = rep(NA, length(test_data))
-
-# Adaptive Conformal Prediction
-#here basically we are forecasting the value for sigma 
-for (t in 1:length(test_data)) {
-  forecast = ugarchforecast(garchfit, n.ahead = 1, data = train_data)
-  sigmaNext = sigma(forecast)
-  
-  # Calculate conformity score
-  scores[t] = abs(test_data[t]^2 - sigmaNext^2)
-  
-  # Update train data with the most recent test data
-  train_data = c(train_data, test_data[t])
-  
-  # Compute recent scores for lookback window
-  if (t >= T0) {
-    recentScores = scores[(t - lookback + 1):t]
-    errSeqOC <- as.numeric(scores[t] > sort(scores)[ceiling((1-alphat)*(length(scores)+1))])
-    
-  }
-}
-
-errSeqOC <- as.numeric(scores[t-T0 + 1] > quantile(recentScores,1-alphat))
-
-quantile_threshold = quantile(recentScores, 1 - alphat, na.rm = TRUE)
+```
