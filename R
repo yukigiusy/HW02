@@ -156,8 +156,26 @@ alphat <- alpha
   return(list(alphaSequence = alphaSequence, errSeqOC = errSeqOC, low_PI = low_PI, high_PI = high_PI))
 }
 ```
-
-Then, we have downloaded TSLA data and computed the returns.
+So, basically we have chosen to perform both the standard GARCH and the APARCH (the asymmetric ARCH).
+We know that through the **standard GARCH** we are able to model the heteroscedasticity of the conditional variance, that in the returns is mainly caused by clustering of the volatility over the time: high level of volatility are connected to other high level volatility, determining the typically clusters in volatility.
+ From the properties of the Garch model we know that it has $E(r_t)=0$, the variance equal to $\frac{w}{1-\alpha}$ and the $\text{Cov}=0$. The process is stationary, since it has constant mean, constant variance and costant covariance, for instance we could say that another stylized facts is that the return behaves like a random walk.
+ What actually changes over the time is the conditional variance and it is defined in terms of variance as $\sigma_{t|t-1}= \sigma^2 + \alpha (r_{t-1} - \sigma^2)$.
+ In order to model this particular shape we are going to use the GARCH model that defines the return as $r_t= \sigma_{t|t-1} \epsilon_t$ with $\epsilon_t = N(0,1)$. Its variance is 1 in order to avoid scales on the variance of the return.
+ $\sigma_{t|t-1}= w + \alpha r_{t-1}^2$.
+ But, it's true that the standard Garch is able to capture the clustering of the volatility, but it misses another stylized fact that is connected to the so-called leverage effect (this is basically connected to the asymmetric shape of the returns and the left tail is heavier than the right).
+In the specific, the standard Garch shows the magnitude of the returns but we know that in the market the negative returns have a higher impact with the respect the positive ones.
+So, the negative events can shock more the investor and this is not captured by standard Garch.
+That's why we have applied the **APARCH model**, that is a model able to capture the negative returns without relying only on the magnitude of the returns.
+ **FORMULA**
+ In general to reach better conclusions we can perform same tests like *the sign bias test*, that has as null hypothesis the "no sign bias".
+ It works by regressing multiple times the process with three different parameters: one for the sign bias, the other two for the magnitude of the asymmetry.
+But since the main aim of this project is not finding which is the best Garch model we have chosen the standard one and the APARCH.
+ Furthermore, we have defined a distinction between the normalized scores and the non-normalized ones: in the first case we have introduce $\sigma^2$, that is the parameter that forces the normalization of the scores $\frac{|S_i^2- \sigma^2|}{\sigma^2}$ and then also the interval is getting normalized by that parameter (in the specific the quantile is multiplied to $\sigma^2$).
+ In the second case, we have used the classical approach.
+ This slight difference among the two ways is connected on the fact that we have an issue in conformal prediction: we can guarantee the validity and the true coverage, but we cannot guarantee the conditional coverage.
+ When we apply the non-normalized scores we can get "fixed" intervals (because the coverage is marginal); instead with the non-normalized we are more able to achieve an interval that is adapted to the specific behaviour of the time series.
+ Let's apply the function above on the real data.
+We have downloaded TSLA data and computed the returns.
 
 ```{r}
 getSymbols("TSLA", from = "2016-01-01", to = "2024-11-30")
@@ -169,9 +187,53 @@ returns = dailyReturn(tsla)
 We have applied the function for each cases that we have considered above.
 
 ```{r}
-aparch_nonnorm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="apARCH", score_type="non normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple")
-garch_norm =garchConformalForecasting(returns = returns,, alpha = 0.1, model_spec="sGARCH", score_type="normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple")
-garch_nonnorm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="sGARCH", score_type="non normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple")
-aparch_norm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="apARCH", score_type="normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple")
+aparch_nonnorm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="apARCH", score_type="non normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple", n.ahead=50)
+garch_norm =garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="sGARCH", score_type="normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple", n.ahead=50)
+garch_nonnorm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="sGARCH", score_type="non normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple", n.ahead=50)
+aparch_norm = garchConformalForecasting(returns = returns, alpha = 0.1, model_spec="apARCH", score_type="normalized",lookback=1250, garchP=1, garchQ=1, gamma=0.001, startUp=100, updateMethod="Simple",n.ahead=50)
+```
+ Now, let's go through the main plot for each application.
+```{r} 
+plotTimeSeriesWithBounds <- function(returns, low_PI, high_PI, startUp, title = "Time Series with Prediction Intervals") {
+  # Number of forecasted points
+  n <- ncol(low_PI)
+  
+  # Ensure the returns subset length matches the forecasted points
+  returns_subset <- returns[(startUp + 1):(startUp + n)]
+  returns_subset <- returns_subset[1:n]
+  
+  # Time indices for plotting
+  time_indices <- seq(from = startUp + 1, length.out = n)
+  
+  # Calculate the central forecast (e.g., mean of bounds)
+  central_forecast <- apply(rbind(low_PI, high_PI), 2, mean, na.rm = TRUE)
+  
+  # Plot
+  plot(time_indices, as.numeric(returns_subset), type = "l", col = "blue", lwd = 2, 
+       xlab = "Time", ylab = "Returns", main = title)
+  matlines(time_indices, t(low_PI), col = "red", lty = 2, lwd = 1)  # Lower bounds
+  matlines(time_indices, t(high_PI), col = "green", lty = 2, lwd = 1)  # Upper bounds
+  lines(time_indices, central_forecast, col = "purple", lty = 1, lwd = 1.5)  # Central forecast
+  
+  legend("topright", legend = c("Returns", "Lower Bound", "Upper Bound", "Central Forecast"), 
+         col = c("blue", "red", "green", "purple"), lty = c(1, 2, 2, 1), lwd = c(2, 1, 1, 1.5))
+}
 
+# plot 1 normalized garch
+plotTimeSeriesWithBounds(
+  returns = returns,
+  low_PI = garch_norm$low_PI,
+  high_PI = garch_norm$high_PI,
+  startUp = 100,
+  title = "Time Series with GARCH-based Prediction Intervals"
+)
+
+#plot 2 normalized aparch
+plotTimeSeriesWithBounds(
+  returns = returns,
+  low_PI = aparch_norm$low_PI,
+  high_PI = aparch_norm$high_PI,
+  startUp = 100,
+  title = "Normalized APARCH with ACI"
+)
 ```
